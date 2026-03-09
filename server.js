@@ -5,15 +5,30 @@ const express = require("express");
 const { google } = require("googleapis");
 const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
+const axios = require("axios");
+const pool = require("./db");
 
 const app = express();
 
 const cors = require("cors");
 
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:4173",
+  process.env.FRONTEND_URL
+]
+
 app.use(cors({
-  origin: "http://localhost:5173",
+  origin: function(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true)
+    } else {
+      callback(new Error("Not allowed by CORS"))
+    }
+  },
   credentials: true
-}));
+}))
+
 app.use(express.json());
 
 app.use(cookieParser());
@@ -30,6 +45,9 @@ const SCOPES = [
   "https://www.googleapis.com/auth/userinfo.profile"
 ];
 
+
+
+
 // Health endpoint
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
@@ -45,7 +63,12 @@ function requireAdmin(req, res, next) {
 }
 
 function requireAuth(req, res, next) {
-  const token = req.cookies.token;
+  // const token = req.cookies.token;
+  const authHeader = req.headers.authorization
+
+  if (!authHeader) return res.status(401).json({ error: "Unauthorized" })
+
+  const token = authHeader.split(" ")[1]
 
   if (!token) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -72,6 +95,49 @@ async function findExistingEvent(calendarApi, calendarId, deventId) {
   return events.length > 0 ? events[0] : null;
 }
 
+async function getBusyPeriods(user) {
+
+  oauth2Client.setCredentials({
+    refresh_token: user.refresh_token
+  })
+
+  const calendarApi = google.calendar({
+    version: "v3",
+    auth: oauth2Client
+  })
+
+  const now = new Date()
+
+  const oneYearLater = new Date()
+  oneYearLater.setFullYear(now.getFullYear() + 1)
+
+  const response = await calendarApi.events.list({
+    calendarId: user.calendar_id,
+    q: "BUSY FOR DEVENT",
+    singleEvents: true,
+    timeMin: now.toISOString(),
+    timeMax: oneYearLater.toISOString(),
+    orderBy: "startTime",
+    maxResults: 250
+  })
+
+  return response.data.items.map(e => ({
+    start: new Date(e.start.date || e.start.dateTime),
+    end: new Date(e.end.date || e.end.dateTime)
+  }))
+}
+
+function overlapsBusy(startDate, days, busyPeriods) {
+
+  const start = new Date(startDate)
+
+  const end = new Date(start)
+  end.setDate(start.getDate() + days - 1)
+
+  return busyPeriods.some(busy =>
+    start <= busy.end && end >= busy.start
+  )
+}
 
 //Step 1: Redirect to Google
 app.get("/auth/google", (req, res) => {
@@ -158,14 +224,16 @@ app.get("/auth/google/callback", async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    res.cookie("token", token, {
+    /*res.cookie("token", token, {
       httpOnly: true,
       secure: true,
       sameSite: "none"
-    });
+    });*/
 
     // 6️⃣ Redirect to frontend (temporary redirect to root)
-    res.redirect("http://localhost:5173");
+    //res.redirect(`${process.env.FRONTEND_URL}?login=success`);
+
+    res.redirect(`${process.env.FRONTEND_URL}?token=${token}`);
 
   } catch (err) {
     console.error("OAuth callback error:", err);
@@ -279,8 +347,6 @@ app.get("/test-calendar", async (req, res) => {
   }
 });
 
-const axios = require("axios");
-
 app.get("/sync-events", requireAdmin,  async (req, res) => {
   try {
     const url = "https://eventslandingpage-2hgltqwriq-ey.a.run.app/";
@@ -305,37 +371,46 @@ app.get("/sync-events", requireAdmin,  async (req, res) => {
     for (const e of events) {
       if (!e.id) continue;
 
-      const startSell = e.startSell ? new Date(e.startSell) : null;
+      const startSell = e.startOfTicketSale? new Date(e.startOfTicketSale) : null;
       const startDate = e.startDate ? new Date(e.startDate) : null;
+      
+      let restrictions = null;
+
+      if (Array.isArray(e.restrictions)) {
+	restrictions = parseInt(e.restrictions[0]);
+	} else if (e.restrictions !== null && e.restrictions !== undefined) {
+	restrictions = parseInt(e.restrictions);
+	}
 
       const result = await pool.query(
-        `
-        INSERT INTO events (id, name, club, start_sell, start_date, link, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, NOW())
-        ON CONFLICT (id)
-        DO UPDATE SET
-          name = EXCLUDED.name,
-          club = EXCLUDED.club,
-          start_sell = EXCLUDED.start_sell,
-          start_date = EXCLUDED.start_date,
-          link = EXCLUDED.link,
-          updated_at = NOW()
-        RETURNING xmax;
-        `,
-        [
-          e.id,
-          e.name || null,
-          e.club || null,
-          startSell,
-          startDate,
-          e.link || null
-        ]
-      );
+  `INSERT INTO events 
+     (id, name, start_date, start_sell, club, restrictions, total_percentage, days)
+   VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+   ON CONFLICT (id) DO UPDATE SET
+     name = EXCLUDED.name,
+     start_date = EXCLUDED.start_date,
+     start_sell = EXCLUDED.start_sell,
+     club = EXCLUDED.club,
+     restrictions = EXCLUDED.restrictions,
+     total_percentage = EXCLUDED.total_percentage,
+     days = EXCLUDED.days
+   RETURNING xmax`,
+  [
+    e.id,
+    e.name,
+    startDate,
+    startSell,
+    e.organizer,
+    restrictions,
+    e.totalPercentage,
+    e.days
+  ]
+);
 
       // PostgreSQL trick:
       // xmax = 0 → inserted
       // xmax > 0 → updated
-      if (result.rows[0].xmax === "0") {
+      if (result.rows[0].xmax == 0) {
         inserted++;
       } else {
         updated++;
@@ -356,11 +431,6 @@ app.get("/sync-events", requireAdmin,  async (req, res) => {
     });
   }
 });
-
-
-
-
-const pool = require("./db");
 
 app.get("/init-db", async (req, res) => {
   try {
@@ -386,31 +456,49 @@ app.get("/init-db", async (req, res) => {
 
 app.get("/events", async (req, res) => {
   try {
-    const pool = require("./db");
+    const pool = require("./db")
 
-    const result = await pool.query(`
+
+    // 1️⃣ Get user
+    const userResult = await pool.query(
+      `SELECT * FROM users WHERE id = $1`,
+      [userId]
+    )
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: "User not found" })
+    }
+
+
+
+    // 3️⃣ Load events + user state
+    const result = await pool.query(
+      `
       SELECT
-        id,
-        name,
-        club,
-        start_sell,
-        start_date,
-        link
-      FROM events
-      WHERE start_date >= CURRENT_DATE
-      ORDER BY start_sell ASC NULLS LAST;
-    `);
+        e.id,
+        e.name,
+        e.club,
+        e.start_sell,
+        e.start_date,
+        e.days,
+        e.link,
+        e.restrictions,
+        e.total_percentage,
+      FROM events e
+      ORDER BY e.start_date ASC NULLS LAST
+      `
+    )
 
     res.json({
       count: result.rows.length,
       events: result.rows
-    });
+    })
 
   } catch (err) {
-    console.error("EVENTS FETCH ERROR:", err);
-    res.status(500).json({ error: "Failed to fetch events" });
+    console.error("EVENTS FETCH ERROR:", err)
+    res.status(500).json({ error: "Failed to fetch events" })
   }
-});
+})
 
 app.post("/events/:id/interested", requireAuth, async (req, res) => {
   try {
@@ -532,13 +620,19 @@ app.post("/events/:id/interested", requireAuth, async (req, res) => {
   }
 });
 
-app.delete("/events/:id/interested", async (req, res) => {
+app.delete("/events/:id/interested", requireAuth, async (req, res) => {
   try {
     const pool = require("./db");
     const eventId = req.params.id;
 
     // 1️⃣ Get event relation
-    const userResult = await pool.query(`SELECT * FROM users WHERE id = $1`);
+    const userId = req.user.userId;
+
+    const userResult = await pool.query(
+      `SELECT * FROM users WHERE id = $1`,
+      [userId]
+    );
+
     if (userResult.rows.length === 0) {
       return res.status(400).json({ error: "No user configured" });
     }
@@ -658,8 +752,182 @@ app.post("/events/:id/pameldt", requireAuth, async (req, res) => {
   }
 });
 
+app.post("/events/:id/notification", requireAuth, async (req, res) => {
+  try {
+    const pool = require("./db")
+    const eventId = req.params.id
+    const userId = req.user.userId
 
+    const userResult = await pool.query(
+      `SELECT * FROM users WHERE id = $1`,
+      [userId]
+    )
 
+    const user = userResult.rows[0]
+
+    const eventResult = await pool.query(
+      `SELECT * FROM events WHERE id = $1`,
+      [eventId]
+    )
+
+    if (eventResult.rows.length === 0) {
+      return res.status(404).json({ error: "Event not found" })
+    }
+
+    const event = eventResult.rows[0]
+
+    const relationResult = await pool.query(
+      `SELECT * FROM user_events WHERE user_id = $1 AND event_id = $2`,
+      [userId, eventId]
+    )
+
+    if (relationResult.rows.length === 0) {
+      return res.status(400).json({ error: "Event not marked INTERESSERT" })
+    }
+
+    const relation = relationResult.rows[0]
+
+    if (relation.calendar_event_id) {
+      return res.json({ message: "Notification already exists" })
+    }
+
+    oauth2Client.setCredentials({
+      refresh_token: user.refresh_token
+    })
+
+    const calendarApi = google.calendar({
+      version: "v3",
+      auth: oauth2Client
+    })
+
+    let calendarEventId
+
+    // Duplicate check
+    const existingCalendarEvent = await calendarApi.events.list({
+      calendarId: user.calendar_id,
+      privateExtendedProperty: `devent_event_id=${eventId}`,
+      singleEvents: true
+    })
+
+    if (existingCalendarEvent.data.items.length > 0) {
+      calendarEventId = existingCalendarEvent.data.items[0].id
+    } else {
+
+      const calendarEvent = await calendarApi.events.insert({
+        calendarId: user.calendar_id,
+        requestBody: {
+          summary: `Devent: ${event.name}`,
+          description: `${event.club}`,
+
+          start: {
+            dateTime: new Date(event.start_sell).toISOString()
+          },
+
+          end: {
+            dateTime: new Date(
+              new Date(event.start_sell).getTime() + 30 * 60000
+            ).toISOString()
+          },
+
+          reminders: {
+            useDefault: false,
+            overrides: [
+              { method: "popup", minutes: 1440 },
+              { method: "popup", minutes: 0 }
+            ]
+          },
+
+          extendedProperties: {
+            private: {
+              devent_event_id: eventId
+            }
+          }
+        }
+      })
+
+      calendarEventId = calendarEvent.data.id
+    }
+
+    await pool.query(
+      `
+      UPDATE user_events
+      SET calendar_event_id = $1
+      WHERE user_id = $2 AND event_id = $3
+      `,
+      [calendarEventId, userId, eventId]
+    )
+
+    res.json({
+      message: "Notification created",
+      calendar_event_id: calendarEventId
+    })
+
+  } catch (err) {
+    console.error("CREATE NOTIFICATION ERROR:", err)
+    res.status(500).json({ error: "Failed to create notification" })
+  }
+})
+
+app.delete("/events/:id/notification", requireAuth, async (req, res) => {
+  try {
+    const pool = require("./db")
+    const eventId = req.params.id
+    const userId = req.user.userId
+
+    const relationResult = await pool.query(
+      `
+      SELECT ue.*, u.refresh_token, u.calendar_id
+      FROM user_events ue
+      JOIN users u ON ue.user_id = u.id
+      WHERE ue.user_id = $1 AND ue.event_id = $2
+      `,
+      [userId, eventId]
+    )
+
+    if (relationResult.rows.length === 0) {
+      return res.status(404).json({ error: "Relation not found" })
+    }
+
+    const relation = relationResult.rows[0]
+
+    if (!relation.calendar_event_id) {
+      return res.json({ message: "No notification exists" })
+    }
+
+    oauth2Client.setCredentials({
+      refresh_token: relation.refresh_token
+    })
+
+    const calendarApi = google.calendar({
+      version: "v3",
+      auth: oauth2Client
+    })
+
+    try {
+      await calendarApi.events.delete({
+        calendarId: relation.calendar_id,
+        eventId: relation.calendar_event_id
+      })
+    } catch (err) {
+      if (err.code !== 404) throw err
+    }
+
+    await pool.query(
+      `
+      UPDATE user_events
+      SET calendar_event_id = NULL
+      WHERE user_id = $1 AND event_id = $2
+      `,
+      [userId, eventId]
+    )
+
+    res.json({ message: "Notification removed" })
+
+  } catch (err) {
+    console.error("DELETE NOTIFICATION ERROR:", err)
+    res.status(500).json({ error: "Failed to delete notification" })
+  }
+})
 
 
 app.get("/me/events", requireAuth, async (req, res) => {
@@ -672,6 +940,9 @@ app.get("/me/events", requireAuth, async (req, res) => {
     );
 
     const user = userResult.rows[0];
+
+    // Get BUSY periods from calendar
+    const busyPeriods = await getBusyPeriods(user)
 
     const result = await pool.query(
       `
@@ -688,9 +959,27 @@ app.get("/me/events", requireAuth, async (req, res) => {
       [user.id]
     );
 
+    // 4️⃣ Attach busy flag
+    const events = result.rows.map(e => ({
+      id: e.id,
+      name: e.name,
+      club: e.club,
+      start_sell: e.start_sell,
+      start_date: e.start_date,
+      days: e.days,
+      link: e.link,
+      restrictions: e.restrictions,
+      total_percentage: e.total_percentage,
+
+      status: e.status || null,
+      calendar_event_id: e.calendar_event_id || null,
+
+      busy: overlapsBusy(e.start_date, e.days, busyPeriods)
+    }))
+
     res.json({
-      count: result.rows.length,
-      events: result.rows
+      count: events.length,
+      events: events
     });
 
   } catch (err) {
@@ -698,6 +987,8 @@ app.get("/me/events", requireAuth, async (req, res) => {
     res.status(500).json({ error: "Failed to fetch events" });
   }
 });
+
+
 
 //////////////TEMPORARY////////////
 app.get("/me", requireAuth, async (req, res) => {
