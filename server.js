@@ -18,6 +18,7 @@ const allowedOrigins = [
   "https://mydevent.app"
 ]
 
+
 app.use(cors({
   origin: function(origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) {
@@ -26,7 +27,12 @@ app.use(cors({
       callback(new Error("Not allowed by CORS"))
     }
   },
-  credentials: true
+  credentials: true,
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization"
+  ],
+  methods: ["GET","POST","DELETE","PUT","OPTIONS"]
 }))
 
 //app.options('*', cors())
