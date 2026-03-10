@@ -15,7 +15,7 @@ const cors = require("cors");
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:4173",
-  process.env.FRONTEND_URL
+  "https://mydevent.app"
 ]
 
 app.use(cors({
@@ -28,6 +28,8 @@ app.use(cors({
   },
   credentials: true
 }))
+
+app.options('*', cors())
 
 app.use(express.json());
 
