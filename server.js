@@ -529,7 +529,7 @@ app.post("/events/:id/interested", requireAuth, async (req, res) => {
     const userResult = await pool.query(
   `SELECT * FROM users WHERE id = $1`,
   [req.user.userId]
-);
+  );
 
     if (userResult.rows.length === 0) {
       return res.status(400).json({ error: "No user configured" });
@@ -757,6 +757,62 @@ app.post("/events/:id/pameldt", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("PAMELDT ERROR:", err);
     res.status(500).json({ error: "Failed to mark PÅMELDT" });
+  }
+});
+
+app.post("/events/:id/booked", requireAuth, async (req, res) => {
+  try {
+    const pool = require("./db");
+    const eventId = req.params.id;
+
+    // 1️⃣ Verify event exists
+    const eventResult = await pool.query(
+      `SELECT id FROM events WHERE id = $1`,
+      [eventId]
+    );
+
+    if (eventResult.rows.length === 0) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+
+    // 2️⃣ Get user
+    const userResult = await pool.query(
+      `SELECT id FROM users WHERE id = $1`,
+      [req.user.userId]
+    );
+
+    const user = userResult.rows[0];
+
+    // 3️⃣ Ensure user already marked INTERESSERT
+    const relationResult = await pool.query(
+      `
+      SELECT * FROM user_events
+      WHERE user_id = $1 AND event_id = $2
+      `,
+      [user.id, eventId]
+    );
+
+    if (relationResult.rows.length === 0) {
+      return res.status(400).json({
+        error: "Must mark INTERESSERT first"
+      });
+    }
+
+    // 4️⃣ Update status to BOOKED
+    await pool.query(
+      `
+      UPDATE user_events
+      SET status = 'BOOKED'
+      WHERE user_id = $1 AND event_id = $2
+      `,
+      [user.id, eventId]
+    );
+
+    res.json({ message: "Marked as BOOKED" });
+
+  } catch (err) {
+    console.error("BOOKED ERROR:", err);
+    res.status(500).json({ error: "Failed to mark BOOKED" });
   }
 });
 
