@@ -760,8 +760,6 @@ app.post("/events/:id/pameldt", requireAuth, async (req, res) => {
   }
 });
 
-console.log("REGISTERING BOOKED ROUTE")
-
 app.post("/events/:id/booked", requireAuth, async (req, res) => {
   try {
     const pool = require("./db");
