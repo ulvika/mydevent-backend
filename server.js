@@ -1,5 +1,6 @@
 require("dotenv").config();
 console.log("CLIENT ID LOADED:", process.env.GOOGLE_CLIENT_ID);
+console.log("MYDEVENT RUNNING NODE VERSION:", process.version)
 
 const express = require("express");
 const { google } = require("googleapis");
