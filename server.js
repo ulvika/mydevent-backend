@@ -5,8 +5,10 @@ const express = require("express");
 const { google } = require("googleapis");
 const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
-const axios = require("axios");
+const axios = require("axios")
 const pool = require("./db");
+const cheerio = require("cheerio");
+const PORT = process.env.PORT || 3000;
 
 const app = express();
 
@@ -85,6 +87,7 @@ function requireAuth(req, res, next) {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded;
+    
     next();
   } catch (err) {
     return res.status(401).json({ error: "Invalid session" });
@@ -145,6 +148,185 @@ function overlapsBusy(startDate, days, busyPeriods) {
   return busyPeriods.some(busy =>
     start <= busy.end && end >= busy.start
   )
+}
+
+function matchDog(parsed, dogs) {
+  if (parsed.externalDogId) {
+    const byId = dogs.find(d => d.dog_id === parsed.externalDogId)
+    if (byId) return byId
+  }
+
+  return dogs.find(d =>
+    normalize(d.name) === normalize(parsed.dogName)
+  )
+}
+
+function extractClasses(schedule) {
+  const classes = []
+
+  if (!schedule?.timeTable) return classes
+
+  for (const day of schedule.timeTable) {
+    for (const ring of day.dayRings || []) {
+      for (const comp of ring.comps || []) {
+
+        // ✅ skip invalid
+        if (!comp.id) continue
+        if (comp.type === "BREAK") continue
+
+        // optional: only agility/jumping
+        if (comp.type !== "A" && comp.type !== "J") continue
+
+        // optional: skip empty classes
+        if (comp.starts === 0) continue
+
+        classes.push({
+          id: comp.id,
+          name: comp.name,
+          startTime: comp.startTime,
+          type: comp.type,
+          size: comp.size,
+          level: comp.level
+        })
+      }
+    }
+  }
+
+  return classes
+}
+
+function parseClass(html, cls) {
+  const $ = cheerio.load(html)
+  const entries = []
+
+  $("table tbody tr").each((_, row) => {
+    const cols = $(row).find("td")
+
+    const startNumber = $(cols[0]).text().trim()
+    const handler = $(cols[1]).text().trim()
+    const dogRaw = $(cols[2]).text().trim()
+
+    const parsed = parseDogField(dogRaw)
+
+    entries.push({
+      startNumber,
+      handler,
+      class: cls.name,
+      startTime: cls.startTime,
+      dogName: parsed.dogName,
+      externalDogId: parsed.dogId
+    })
+  })
+
+  return entries
+}
+
+async function syncEvent(eventId) {
+  const pool = require("./db")
+
+  try {
+    console.log("SYNC START:", eventId)
+
+    // 1️⃣ Fetch schedule
+    const scheduleRes = await fetch(
+      `https://ag.devent.no/public/event/${eventId}/schedule`
+    )
+
+    const schedule = await scheduleRes.json()
+
+    // 2️⃣ Extract classes
+    const classes = extractClasses(schedule)
+
+    console.log("Classes found:", classes.length)
+
+    let allEntries = []
+
+    // 3️⃣ Fetch & parse each class
+    for (const cls of classes) {
+      try {
+        const html = await fetch(
+          `https://ag.devent.no/public/event/${eventId}/result/${cls.id}`
+        ).then(r => r.text())
+
+        const entries = parseClass(html, cls)
+
+        allEntries.push(...entries)
+
+        await delay(300) // prevent hammering
+      } catch (err) {
+        console.error("Class failed:", cls.id, err)
+      }
+    }
+
+    console.log("Total entries:", allEntries.length)
+
+    // 4️⃣ Get user dogs (for matching)
+    const dogsRes = await pool.query(`SELECT * FROM dogs`)
+    const dogs = dogsRes.rows
+
+    // 5️⃣ Match dogs
+    const enrichedEntries = allEntries.map(e => {
+      const matched = matchDog(e, dogs)
+
+      return {
+        ...e,
+        dog_id: matched ? matched.id : null
+      }
+    })
+
+    // 6️⃣ Replace DB data (atomic)
+    await pool.query("BEGIN")
+
+    await pool.query(
+      `DELETE FROM event_entries WHERE event_id = $1`,
+      [eventId]
+    )
+
+    // 7️⃣ Batch insert (IMPORTANT)
+    const values = []
+    const placeholders = []
+
+    enrichedEntries.forEach((e, i) => {
+      const idx = i * 7
+
+      placeholders.push(
+        `($${idx + 1}, $${idx + 2}, $${idx + 3}, $${idx + 4}, $${idx + 5}, $${idx + 6}, $${idx + 7})`
+      )
+
+      values.push(
+        eventId,
+        e.dogName,
+        e.dog_id,
+        e.startNumber,
+        e.startTime,
+        e.class,
+        e.externalDogId || null
+      )
+    })
+
+    if (values.length > 0) {
+      await pool.query(
+        `
+        INSERT INTO event_entries
+        (event_id, dog_name, dog_id, start_number, start_time, class, external_dog_id)
+        VALUES ${placeholders.join(",")}
+        `,
+        values
+      )
+    }
+
+    await pool.query("COMMIT")
+
+    console.log("SYNC DONE:", eventId)
+
+    return { success: true, count: enrichedEntries.length }
+
+  } catch (err) {
+    await pool.query("ROLLBACK")
+    console.error("SYNC ERROR:", err)
+
+    return { success: false }
+  }
 }
 
 //Step 1: Redirect to Google
@@ -993,7 +1175,6 @@ app.delete("/events/:id/notification", requireAuth, async (req, res) => {
   }
 })
 
-
 app.get("/me/events", requireAuth, async (req, res) => {
   try {
     const pool = require("./db");
@@ -1051,7 +1232,6 @@ app.get("/me/events", requireAuth, async (req, res) => {
     res.status(500).json({ error: "Failed to fetch events" });
   }
 });
-
 
 
 //////////////TEMPORARY////////////
@@ -1119,10 +1299,23 @@ app.get("/create-user", async (req, res) => {
   }
 });
 
-///////////////////////////////////
-
-const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
 });
+
+app.delete("/dogs/:id", requireAuth, async (req, res) => {
+  const pool = require("./db")
+
+  await pool.query(
+    `DELETE FROM dogs WHERE id = $1 AND user_id = $2`,
+    [req.params.id, req.user.userId]
+  )
+
+  res.json({ success: true })
+})
+
+app.post("/jobs/sync-event/:id", async (req, res) => {
+  const result = await syncEvent(req.params.id)
+  res.json(result)
+})
