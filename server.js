@@ -266,7 +266,7 @@ app.post("/dogs", requireAuth, async (req, res) => {
     }
 
     const normalizedDogId = dogId?.trim().toUpperCase() || null
-    }
+    
 
     const result = await pool.query(
       `
