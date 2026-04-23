@@ -151,15 +151,10 @@ function overlapsBusy(startDate, days, busyPeriods) {
   )
 }
 
-function matchDog(parsed, dogs) {
-  if (parsed.externalDogId) {
-    const byId = dogs.find(d => d.dog_id === parsed.externalDogId)
-    if (byId) return byId
-  }
+function matchDog(entry, dogs) {
+  if (!entry.externalDogId) return null
 
-  return dogs.find(d =>
-    normalize(d.name) === normalize(parsed.dogName)
-  )
+  return dogs.find(d => d.dog_id === entry.externalDogId)
 }
 
 function extractClasses(schedule) {
@@ -221,6 +216,83 @@ function parseClass(html, cls) {
 
   return entries
 }
+
+function countMyRuns(entries, dogs) {
+  const myDogIds = new Set(dogs.map(d => d.dog_id))
+  const counts = {}
+
+  for (const e of entries) {
+    if (!myDogIds.has(e.externalDogId)) continue
+
+    counts[e.externalDogId] = (counts[e.externalDogId] || 0) + 1
+  }
+
+  return counts
+}
+
+function groupRuns(entries, dogs) {
+  const myDogIds = new Set(dogs.map(d => d.dog_id))
+  const result = {}
+
+  for (const e of entries) {
+    if (!myDogIds.has(e.externalDogId)) continue
+
+    if (!result[e.externalDogId]) {
+      result[e.externalDogId] = {
+        dogId: e.externalDogId,
+        dogName: e.dogName,
+        runs: []
+      }
+    }
+
+    result[e.externalDogId].runs.push({
+      class: e.class,
+      startNumber: e.startNumber,
+      startTime: e.startTime
+    })
+  }
+
+  return result
+}
+
+app.post("/dogs", requireAuth, async (req, res) => {
+  try {
+    const pool = require("./db")
+    const { dogId, name } = req.body
+
+    if (!dogId) {
+      return res.status(400).json({ error: "dogId is required" })
+    }
+
+    const normalizedDogId = dogId?.trim().toUpperCase() || null
+    }
+
+    const result = await pool.query(
+      `
+      INSERT INTO dogs (user_id, dog_id, name)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (user_id, dog_id) DO NOTHING
+      RETURNING dog_id, name
+      `,
+      [req.user.userId, normalizedDogId, name || null]
+    )
+
+    // If conflict (already exists), fetch existing
+    if (result.rows.length === 0) {
+      const existing = await pool.query(
+        `SELECT dog_id, name FROM dogs WHERE user_id = $1 AND dog_id = $2`,
+        [req.user.userId, normalizedDogId]
+      )
+      return res.json({ dog: existing.rows[0], existed: true })
+    }
+
+    res.json({ dog: result.rows[0], existed: false })
+
+  } catch (err) {
+    console.error("ADD DOG ERROR:", err)
+    res.status(500).json({ error: "Failed to add dog" })
+  }
+})
 
 async function syncEvent(eventId) {
   const pool = require("./db")
@@ -328,6 +400,19 @@ async function syncEvent(eventId) {
 
     return { success: false }
   }
+}
+
+function isEventRunning(e) {
+  const now = new Date()
+
+  if (!e.startDate) return false
+
+  const start = new Date(e.startDate)
+  const end = e.endDate
+    ? new Date(e.endDate)
+    : new Date(start.getTime() + 2 * 24 * 60 * 60 * 1000) // +2 days fallback
+
+  return start <= now && now <= end
 }
 
 //Step 1: Redirect to Google
@@ -562,16 +647,20 @@ app.get("/sync-events", requireAdmin,  async (req, res) => {
     for (const e of events) {
       if (!e.id) continue;
 
+      if (isEventRunning(e)) {
+        await syncEvent(e.id)
+      }
+
       const startSell = e.startOfTicketSale? new Date(e.startOfTicketSale) : null;
       const startDate = e.startDate ? new Date(e.startDate) : null;
       
       let restrictions = null;
 
       if (Array.isArray(e.restrictions)) {
-	restrictions = parseInt(e.restrictions[0]);
-	} else if (e.restrictions !== null && e.restrictions !== undefined) {
-	restrictions = parseInt(e.restrictions);
-	}
+        restrictions = parseInt(e.restrictions[0]);
+      } else if (e.restrictions !== null && e.restrictions !== undefined) {
+        restrictions = parseInt(e.restrictions);
+      }
 
       const result = await pool.query(
   `INSERT INTO events 
@@ -1233,6 +1322,17 @@ app.get("/me/events", requireAuth, async (req, res) => {
     res.status(500).json({ error: "Failed to fetch events" });
   }
 });
+
+app.get("/dogs", requireAuth, async (req, res) => {
+  const pool = require("./db")
+
+  const dogs = await pool.query(
+    `SELECT dog_id, name FROM dogs WHERE user_id = $1 ORDER BY created_at DESC`,
+    [req.user.userId]
+  )
+
+  res.json({ dogs: dogs.rows })
+})
 
 
 //////////////TEMPORARY////////////
