@@ -38,16 +38,21 @@ app.use(cors({
   methods: ["GET","POST","DELETE","PUT","OPTIONS"]
 }))
 
-app.options("/*", cors({
-  origin: function(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true)
-    } else {
-      callback(new Error("Not allowed by CORS"))
-    }
-  },
-  credentials: true
-}))
+app.use((req, res, next) => {
+  if (req.method === "OPTIONS") {
+    return cors({
+      origin: function(origin, callback) {
+        if (!origin || allowedOrigins.includes(origin)) {
+          callback(null, true)
+        } else {
+          callback(new Error("Not allowed by CORS"))
+        }
+      },
+      credentials: true
+    })(req, res, next)
+  }
+  next()
+})
 
 app.use(express.json());
 
@@ -752,7 +757,7 @@ app.get("/events", async (req, res) => {
     // 1️⃣ Get user
     const userResult = await pool.query(
       `SELECT * FROM users WHERE id = $1`,
-      [userId]
+      [req.user.userId]
     )
 
     if (userResult.rows.length === 0) {
@@ -773,7 +778,7 @@ app.get("/events", async (req, res) => {
         e.days,
         e.link,
         e.restrictions,
-        e.total_percentage,
+        e.total_percentage
       FROM events e
       ORDER BY e.start_date ASC NULLS LAST
       `
@@ -1415,12 +1420,10 @@ app.listen(PORT, () => {
   console.log("Server running on port", PORT);
 });
 
-app.delete("/dogs/:id", requireAuth, async (req, res) => {
-  const pool = require("./db")
-
+app.delete("/dogs/:dogId", requireAuth, async (req, res) => {
   await pool.query(
-    `DELETE FROM dogs WHERE id = $1 AND user_id = $2`,
-    [req.params.id, req.user.userId]
+    `DELETE FROM dogs WHERE dog_id = $1 AND user_id = $2`,
+    [req.params.dogId, req.user.userId]
   )
 
   res.json({ success: true })
