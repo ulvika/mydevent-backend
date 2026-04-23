@@ -38,7 +38,7 @@ app.use(cors({
   methods: ["GET","POST","DELETE","PUT","OPTIONS"]
 }))
 
-//app.options('*', cors())
+app.options('*', cors())
 
 app.use(express.json());
 
@@ -74,6 +74,7 @@ function requireAdmin(req, res, next) {
 }
 
 function requireAuth(req, res, next) {
+   if (req.method === "OPTIONS") return next()   // 🔥 critical
   // const token = req.cookies.token;
   const authHeader = req.headers.authorization
 
