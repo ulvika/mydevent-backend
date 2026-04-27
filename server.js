@@ -1468,7 +1468,7 @@ app.get("/events/:id/my-runs", requireAuth, async (req, res) => {
 
     res.json({
       eventId: req.params.id,
-      dogs: grouped
+      dogs: Object.values(grouped) 
     })
 
   } catch (err) {
