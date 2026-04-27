@@ -1424,7 +1424,7 @@ app.delete("/dogs/:dogId", requireAuth, async (req, res) => {
   const rawDogId = req.params.dogId
 
   // 🔥 explicitly decode
-  const dogId = decodeURIComponent(rawDogId)
+  const dogId = decodeURIComponent(rawDogId).trim().toUpperCase()
 
   await pool.query(
     `DELETE FROM dogs WHERE dog_id = $1 AND user_id = $2`,
@@ -1437,4 +1437,42 @@ app.delete("/dogs/:dogId", requireAuth, async (req, res) => {
 app.post("/jobs/sync-event/:id", async (req, res) => {
   const result = await syncEvent(req.params.id)
   res.json(result)
+})
+
+app.get("/events/:id/my-runs", requireAuth, async (req, res) => {
+  try {
+    const pool = require("./db")
+
+    // 1️⃣ get dogs
+    const dogsRes = await pool.query(
+      `SELECT dog_id, name FROM dogs WHERE user_id = $1`,
+      [req.user.userId]
+    )
+
+    const dogs = dogsRes.rows
+
+    if (dogs.length === 0) {
+      return res.json({ dogs: [] })
+    }
+
+    // 2️⃣ get entries
+    const entriesRes = await pool.query(
+      `SELECT * FROM event_entries WHERE event_id = $1`,
+      [req.params.id]
+    )
+
+    const entries = entriesRes.rows
+
+    // 3️⃣ group
+    const grouped = groupRuns(entries, dogs)
+
+    res.json({
+      eventId: req.params.id,
+      dogs: grouped
+    })
+
+  } catch (err) {
+    console.error("MY RUNS ERROR:", err)
+    res.status(500).json({ error: "Failed to get runs" })
+  }
 })
