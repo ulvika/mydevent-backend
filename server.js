@@ -662,9 +662,9 @@ app.get("/sync-events", requireAdmin,  async (req, res) => {
     for (const e of events) {
       if (!e.id) continue;
 
-      if (isEventRunning(e)) {
-        await syncEvent(e.id)
-      }
+
+      await syncEvent(e.id);            // allways parsing
+
 
       const startSell = e.startOfTicketSale? new Date(e.startOfTicketSale) : null;
       const startDate = e.startDate ? new Date(e.startDate) : null;
