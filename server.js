@@ -1421,9 +1421,14 @@ app.listen(PORT, () => {
 });
 
 app.delete("/dogs/:dogId", requireAuth, async (req, res) => {
+  const rawDogId = req.params.dogId
+
+  // 🔥 explicitly decode
+  const dogId = decodeURIComponent(rawDogId)
+
   await pool.query(
     `DELETE FROM dogs WHERE dog_id = $1 AND user_id = $2`,
-    [req.params.dogId, req.user.userId]
+    [dogId, req.user.userId]
   )
 
   res.json({ success: true })
