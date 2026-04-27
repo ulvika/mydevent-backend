@@ -358,7 +358,7 @@ async function syncEvent(eventId) {
 
       return {
         ...e,
-        dog_id: matched ? matched.id : null
+        dog_id: matched ? matched.dog_id : null
       }
     })
 
