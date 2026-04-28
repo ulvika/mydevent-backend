@@ -230,12 +230,24 @@ function parseClass(html, cls) {
   const $ = cheerio.load(html)
   const entries = []
 
-  $("table tbody tr").each((_, row) => {
+  // Try multiple selectors to find the table
+  const table = $("table").first()
+  const rows = table.find("tbody tr, tr")
+  
+  console.log(`Found ${rows.length} rows in table`)
+
+  rows.each((_, row) => {
     const cols = $(row).find("td")
+    
+    // Skip if not enough columns
+    if (cols.length < 3) return
 
     const startNumber = $(cols[0]).text().trim()
     const handler = $(cols[1]).text().trim()
     const dogRaw = $(cols[2]).text().trim()
+
+    // Skip header rows
+    if (!startNumber || isNaN(parseInt(startNumber))) return
 
     const parsed = parseDogField(dogRaw)
 
@@ -371,14 +383,19 @@ async function syncEvent(eventId) {
 
     let allEntries = []
 
-    // 3️⃣ Fetch & parse each class
+       // 3️⃣ Fetch & parse each class
     for (const cls of classes) {
       try {
         const html = await fetch(
           `https://ag.devent.no/public/event/${eventId}/result/${cls.id}`
         ).then(r => r.text())
 
+        // Debug: Log first 500 chars of HTML to see structure
+        console.log(`Class ${cls.id} HTML sample:`, html.substring(0, 500))
+
         const entries = parseClass(html, cls)
+        
+        console.log(`Class ${cls.id} entries found:`, entries.length)
 
         allEntries.push(...entries)
 
