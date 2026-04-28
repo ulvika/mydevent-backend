@@ -335,12 +335,24 @@ async function syncEvent(eventId) {
   try {
     console.log("SYNC START:", eventId)
 
-    // 1️⃣ Fetch schedule
-    const scheduleRes = await fetch(
+    // 1️⃣ Try running events API first, then future events API
+    let schedule;
+    let scheduleRes = await fetch(
       `https://ag.devent.no/public/event/${eventId}/schedule`
-    )
+    );
 
-    const schedule = await scheduleRes.json()
+    if (!scheduleRes.ok) {
+      console.log("Trying future events API...");
+      scheduleRes = await fetch(
+        `https://eventschedule-2hgltqwriq-ey.a.run.app/?eventId=${eventId}`
+      );
+    }
+
+    if (!scheduleRes.ok) {
+      throw new Error(`Schedule not found: ${scheduleRes.status}`);
+    }
+
+    schedule = await scheduleRes.json();
 
     // 2️⃣ Extract classes
     const classes = extractClasses(schedule)
