@@ -250,17 +250,17 @@ function groupRuns(entries, dogs) {
   const result = {}
 
   for (const e of entries) {
-    if (!myDogIds.has(e.externalDogId)) continue
+    if (!myDogIds.has(e.dog_id)) continue
 
-    if (!result[e.externalDogId]) {
-      result[e.externalDogId] = {
-        dogId: e.externalDogId,
+    if (!result[e.dog_id]) {
+      result[e.dog_id] = {
+        dogId: e.dog_id,
         dogName: e.dogName,
         runs: []
       }
     }
 
-    result[e.externalDogId].runs.push({
+    result[e.dog_id].runs.push({
       class: e.class,
       startNumber: e.startNumber,
       startTime: e.startTime
