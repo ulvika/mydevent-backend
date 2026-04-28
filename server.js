@@ -230,6 +230,12 @@ function parseClass(html, cls) {
   const $ = cheerio.load(html)
   const entries = []
 
+  // Skip if HTML is an error page (no tables or is the homepage)
+  if (html.includes("<!doctype html>") && !html.includes("<table")) {
+    console.log(`Class ${cls.id}: No result table (results not published yet)`)
+    return entries
+  }
+
   // Try multiple selectors to find the table
   const table = $("table").first()
   const rows = table.find("tbody tr, tr")
@@ -383,20 +389,14 @@ async function syncEvent(eventId) {
 
     let allEntries = []
 
-       // 3️⃣ Fetch & parse each class
+      // 3️⃣ Fetch & parse each class
     for (const cls of classes) {
       try {
         const html = await fetch(
           `https://ag.devent.no/public/event/${eventId}/result/${cls.id}`
         ).then(r => r.text())
 
-        // Debug: Log first 500 chars of HTML to see structure
-        console.log(`Class ${cls.id} HTML sample:`, html.substring(0, 500))
-
         const entries = parseClass(html, cls)
-        
-        console.log(`Class ${cls.id} entries found:`, entries.length)
-
         allEntries.push(...entries)
 
         await delay(300) // prevent hammering
