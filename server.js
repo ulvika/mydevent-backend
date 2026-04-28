@@ -430,10 +430,14 @@ async function syncEvent(eventId) {
     return { success: true, count: enrichedEntries.length }
 
   } catch (err) {
-    await pool.query("ROLLBACK")
-    console.error("SYNC ERROR:", err)
-
-    return { success: false }
+    await pool.query("ROLLBACK").catch(() => {}); // Ignore rollback error
+    console.error("SYNC ERROR:", err);
+    
+    return { 
+      success: false, 
+      error: err.message,
+      stack: err.stack 
+    };
   }
 }
 
