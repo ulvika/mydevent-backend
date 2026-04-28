@@ -205,11 +205,11 @@ function extractClasses(schedule) {
         if (!comp.id) continue
         if (comp.type === "BREAK") continue
 
-        // optional: only agility/jumping
-        if (comp.type !== "A" && comp.type !== "J") continue
+        // Include A (Agility), J (Jumping), H (Hopp)
+        if (comp.type !== "A" && comp.type !== "J" && comp.type !== "H") continue
 
-        // optional: skip empty classes
-        if (comp.starts === 0) continue
+        // Remove the starts === 0 filter - we want to fetch all classes
+        // and let the result parsing handle empty ones
 
         classes.push({
           id: comp.id,
