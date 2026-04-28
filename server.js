@@ -166,6 +166,26 @@ function overlapsBusy(startDate, days, busyPeriods) {
   )
 }
 
+// Helper to pause execution
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Parse dog field to extract name and ID
+function parseDogField(dogRaw) {
+  // Example: "DogName (ABC123)" -> { dogName: "DogName", dogId: "ABC123" }
+  const match = dogRaw.match(/^(.+?)\s*\(?([A-Z0-9]+)?\)?$/);
+  
+  if (match) {
+    return {
+      dogName: match[1].trim(),
+      dogId: match[2] ? match[2].trim().toUpperCase() : null
+    };
+  }
+  
+  return { dogName: dogRaw.trim(), dogId: null };
+}
+
 function matchDog(entry, dogs) {
   if (!entry.externalDogId) return null
 
