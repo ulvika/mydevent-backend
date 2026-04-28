@@ -341,8 +341,12 @@ async function syncEvent(eventId) {
       `https://ag.devent.no/public/event/${eventId}/schedule`
     );
 
-    if (!scheduleRes.ok) {
-      console.log("Trying future events API...");
+    // Check if response is actually JSON (not HTML error page)
+    const contentType = scheduleRes.headers.get("content-type") || "";
+    const isJson = contentType.includes("application/json");
+    
+    if (!scheduleRes.ok || !isJson) {
+      console.log("First API failed or returned HTML, trying future events API...");
       scheduleRes = await fetch(
         `https://eventschedule-2hgltqwriq-ey.a.run.app/?eventId=${eventId}`
       );
@@ -350,6 +354,12 @@ async function syncEvent(eventId) {
 
     if (!scheduleRes.ok) {
       throw new Error(`Schedule not found: ${scheduleRes.status}`);
+    }
+
+    // Verify the second response is also JSON
+    const contentType2 = scheduleRes.headers.get("content-type") || "";
+    if (!contentType2.includes("application/json")) {
+      throw new Error(`Expected JSON but got: ${contentType2}`);
     }
 
     schedule = await scheduleRes.json();
