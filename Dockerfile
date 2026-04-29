@@ -33,6 +33,7 @@ FROM base
 
 COPY --from=build /app /app
 
+
 # Install Chromium dependencies for Playwright
 RUN apt-get update && apt-get install -y \
     libglib2.0-0 \
