@@ -171,19 +171,32 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Parse dog field to extract name and ID
-function parseDogField(dogRaw) {
-  // Example: "DogName (ABC123)" -> { dogName: "DogName", dogId: "ABC123" }
-  const match = dogRaw.match(/^(.+?)\s*\(?([A-Z0-9]+)?\)?$/);
+// Parse dog field to extract name and ID from HTML structure
+function parseDogField(dogHtml) {
+  // Example: "<strong>Kapow</strong> CMKU/AKE/859/23 <small>(Australian Kelpie)</small>"
+  // We need to extract: DogName = "Kapow", dogId = "CMKU/AKE/859/23"
   
-  if (match) {
-    return {
-      dogName: match[1].trim(),
-      dogId: match[2] ? match[2].trim().toUpperCase() : null
-    };
+  const $ = cheerio.load(dogHtml)
+  
+  // Get dog name from strong tag
+  const dogName = $("strong").text().trim()
+  
+  // Get registration number (text before the <small> tag)
+  const fullText = $.html()
+  const regMatch = fullText.match(/<strong[^>]*>[^<]*<\/strong>\s*(\S+)/)
+  
+  let dogId = null
+  if (regMatch && regMatch[1]) {
+    // Extract the registration number (e.g., NO50336/21, CMKU/AKE/859/23)
+    const regNo = regMatch[1].trim()
+    // Extract just the alphanumeric ID part
+    const idMatch = regNo.match(/[A-Z0-9]+$/i)
+    if (idMatch) {
+      dogId = idMatch[0].toUpperCase()
+    }
   }
   
-  return { dogName: dogRaw.trim(), dogId: null };
+  return { dogName, dogId };
 }
 
 function matchDog(entry, dogs) {
@@ -236,8 +249,8 @@ function parseClass(html, cls) {
     return entries
   }
 
-  // Try multiple selectors to find the table
-  const table = $("table").first()
+  // Find the table by id or just the first table
+  const table = $("#startList, table.table").first()
   const rows = table.find("tbody tr, tr")
   
   console.log(`Found ${rows.length} rows in table`)
@@ -250,12 +263,12 @@ function parseClass(html, cls) {
 
     const startNumber = $(cols[0]).text().trim()
     const handler = $(cols[1]).text().trim()
-    const dogRaw = $(cols[2]).text().trim()
+    const dogHtml = $(cols[2]).html() // Get HTML, not text
 
     // Skip header rows
     if (!startNumber || isNaN(parseInt(startNumber))) return
 
-    const parsed = parseDogField(dogRaw)
+    const parsed = parseDogField(dogHtml)
 
     entries.push({
       startNumber,
