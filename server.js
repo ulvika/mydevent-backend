@@ -259,7 +259,7 @@ function parseClass(html, cls) {
 const isAngularLoading = html.includes('app-loading') || 
                         html.includes('ag-root') || 
                         html.includes('spinner');
-if ((html.includes("<!doctype html>") && !html.includes("<table")) || isAngularLoading) {
+if ((html.includes("<!doctype html>") && !html.includes("<table") && !html.includes("<TABLE")) || isAngularLoading) {
   console.log(`Class ${cls.id}: No result table (results not published yet or still loading)`)
   return entries
 }
@@ -552,12 +552,29 @@ async function fetchWithPlaywright(url) {
   const page = await browser.newPage();
   
   try {
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+    console.log("Fetching with Playwright:", url);
     
-    // Wait for table to appear
-    await page.waitForSelector('#startList table.table, table.table', { timeout: 10000 }).catch(() => {});
+    // Use domcontentloaded instead of networkidle for Angular apps
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     
-    return await page.content();
+    // Wait for Angular to render - check for table rows specifically
+    await page.waitForFunction(() => {
+      const table = document.getElementById('startList');
+      return table && table.rows && table.rows.length > 1;
+    }, { timeout: 15000 }).catch(() => {
+      console.log("Timeout waiting for table rows");
+    });
+    
+    // Debug: log page title and content preview
+    const title = await page.title();
+    console.log("Page title:", title);
+    
+    const content = await page.content();
+    console.log("Content length:", content.length);
+    console.log("Contains startList:", content.includes('startList'));
+    console.log("Contains table rows:", content.includes('<tr '));
+    
+    return content;
   } finally {
     await page.close();
   }
