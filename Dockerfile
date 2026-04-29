@@ -28,6 +28,9 @@ RUN apt-get update && apt-get install -y \
 
 RUN npm ci
 
+RUN npm install playwright
+RUN npx playwright install chromium  # Add this line
+
 COPY . .
 
 FROM base
