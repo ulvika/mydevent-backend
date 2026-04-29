@@ -15,7 +15,8 @@
     "express": "^5.2.1",
     "googleapis": "^171.4.0",
     "jsonwebtoken": "^9.0.3",
-    "pg": "^8.19.0"
+    "pg": "^8.19.0",
+    "playwright": "^1.59.1"
   },
   "devDependencies": {
     "@flydotio/dockerfile": "^0.7.4"

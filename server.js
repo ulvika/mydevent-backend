@@ -4,6 +4,7 @@ console.log("MYDEVENT RUNNING NODE VERSION:", process.version);
 
 const express = require("express");
 const { google } = require("googleapis");
+const { chromium } = require('playwright');
 const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
 const axios = require("axios")
@@ -21,6 +22,17 @@ const allowedOrigins = [
   "https://mydevent.app"
 ]
 
+// Helper to get browser (reusable)
+let browser = null; 
+async function getBrowser() {
+  if (!browser) {
+    browser = await chromium.launch({ 
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+  }
+  return browser;
+}
 
 app.use(cors({
   origin: function(origin, callback) {
@@ -431,9 +443,9 @@ async function syncEvent(eventId) {
     // 3️⃣ Fetch & parse each class
     for (const cls of classes) {
       try {
-        const html = await fetch(
+        const html = await fetchWithPlaywright(
           `https://ag.devent.no/public/event/${eventId}/result/${cls.id}`
-        ).then(r => r.text())
+        )
 
         const entries = parseClass(html, cls)
         allEntries.push(...entries)
@@ -532,6 +544,23 @@ function isEventRunning(e) {
     : new Date(start.getTime() + 2 * 24 * 60 * 60 * 1000) // +2 days fallback
 
   return start <= now && now <= end
+}
+
+// New function to fetch page with Playwright
+async function fetchWithPlaywright(url) {
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  
+  try {
+    await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+    
+    // Wait for table to appear
+    await page.waitForSelector('#startList table.table, table.table', { timeout: 10000 }).catch(() => {});
+    
+    return await page.content();
+  } finally {
+    await page.close();
+  }
 }
 
 //Step 1: Redirect to Google
