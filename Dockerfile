@@ -15,7 +15,6 @@ RUN apt-get update -qq && \
 
 COPY package-lock.json package.json ./
 
-
 # Install Playwright dependencies
 RUN apt-get update && apt-get install -y \
     wget \
@@ -28,14 +27,14 @@ RUN apt-get update && apt-get install -y \
 
 RUN npm ci
 
-RUN npm install playwright
-RUN npx playwright install chromium  # Add this line
-
 COPY . .
 
 FROM base
 
 COPY --from=build /app /app
+
+# Install Playwright in final stage
+RUN npm install playwright && npx playwright install chromium
 
 EXPOSE 3000
 CMD [ "npm", "run", "start" ]
