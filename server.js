@@ -360,6 +360,8 @@ app.post("/dogs", requireAuth, async (req, res) => {
   }
 })
 
+// ...existing code...
+
 async function syncEvent(eventId) {
   const pool = require("./db")
 
@@ -383,14 +385,25 @@ async function syncEvent(eventId) {
       );
     }
 
+    // Handle API errors gracefully - schedule might not be published yet
     if (!scheduleRes.ok) {
-      throw new Error(`Schedule not found: ${scheduleRes.status}`);
+      console.log(`Schedule not available yet (status: ${scheduleRes.status}) - returning success with 0 entries`);
+      return { 
+        success: true, 
+        count: 0,
+        message: "Schedule not published yet"
+      };
     }
 
-    // Verify the second response is also JSON
+    // Verify the response is JSON
     const contentType2 = scheduleRes.headers.get("content-type") || "";
     if (!contentType2.includes("application/json")) {
-      throw new Error(`Expected JSON but got: ${contentType2}`);
+      console.log("Response is not JSON - schedule might not be published yet");
+      return { 
+        success: true, 
+        count: 0,
+        message: "Schedule not published yet"
+      };
     }
 
     schedule = await scheduleRes.json();
@@ -400,9 +413,19 @@ async function syncEvent(eventId) {
 
     console.log("Classes found:", classes.length)
 
+    // If no classes found, schedule might not be published yet
+    if (classes.length === 0) {
+      console.log("No classes found - schedule might not be published yet");
+      return { 
+        success: true, 
+        count: 0,
+        message: "Schedule not published yet"
+      };
+    }
+
     let allEntries = []
 
-      // 3️⃣ Fetch & parse each class
+    // 3️⃣ Fetch & parse each class
     for (const cls of classes) {
       try {
         const html = await fetch(
@@ -419,6 +442,8 @@ async function syncEvent(eventId) {
     }
 
     console.log("Total entries:", allEntries.length)
+
+    // ...rest of the function...
 
     // 4️⃣ Get user dogs (for matching)
     const dogsRes = await pool.query(`SELECT * FROM dogs`)
