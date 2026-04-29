@@ -243,11 +243,14 @@ function parseClass(html, cls) {
   const $ = cheerio.load(html)
   const entries = []
 
-  // Skip if HTML is an error page (no tables or is the homepage)
-  if (html.includes("<!doctype html>") && !html.includes("<table")) {
-    console.log(`Class ${cls.id}: No result table (results not published yet)`)
-    return entries
-  }
+  // Skip if HTML is an error page or Angular loading page
+const isAngularLoading = html.includes('app-loading') || 
+                        html.includes('ag-root') || 
+                        html.includes('spinner');
+if ((html.includes("<!doctype html>") && !html.includes("<table")) || isAngularLoading) {
+  console.log(`Class ${cls.id}: No result table (results not published yet or still loading)`)
+  return entries
+}
 
   // Find the table by id or just the first table
   const table = $("#startList, table.table").first()
