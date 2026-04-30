@@ -547,36 +547,82 @@ function isEventRunning(e) {
 }
 
 // New function to fetch page with Playwright
-async function fetchWithPlaywright(url) {
-  const browser = await getBrowser();
-  const page = await browser.newPage();
+// Improved fetchWithPlaywright with retry and fallback
+async function fetchWithPlaywright(url, maxRetries = 3) {
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const browser = await getBrowser();
+    const page = await browser.newPage();
+
+    try {
+      console.log(`Fetching (attempt ${attempt}/${maxRetries}):`, url);
+
+      // 🚀 Block heavy external scripts (CRITICAL)
+      await page.route('**/*', route => {
+        const reqUrl = route.request().url();
+        if (
+          reqUrl.includes('stripe.com') ||
+          reqUrl.includes('maps.googleapis.com')
+        ) {
+          return route.abort();
+        }
+        route.continue();
+      });
+
+      // 🚀 Use 'commit' instead of 'load'
+      await page.goto(url, {
+        waitUntil: 'commit',
+        timeout: 60000
+      });
+
+      // 🚀 Wait for actual content (not fake signals)
+      await page.waitForFunction(() =>
+        document.body.innerText.includes('Startliste'),
+        { timeout: 60000 }
+      );
+
+      // Optional: wait for loader to disappear
+      await page.waitForSelector('.app-loading', {
+        state: 'detached',
+        timeout: 30000
+      }).catch(() => {});
+
+      // 🚀 Extract structured data directly
+      const data = await page.$$eval('table tr', rows =>
+        rows.slice(1).map(tr =>
+          [...tr.children].map(td => td.innerText.trim())
+        )
+      );
+
+      console.log("Rows extracted:", data.length);
+
+      return data;
+
+    } catch (err) {
+      console.log(`Attempt ${attempt} failed:`, err.message);
+      lastError = err;
+
+      if (attempt < maxRetries) {
+        await delay(1000 * attempt);
+      }
+
+    } finally {
+      await page.close();
+    }
+  }
+
+  throw lastError;
+}
   
+  // Fallback to simple fetch if Playwright fails
+  console.log("Playwright failed, falling back to simple fetch:", url);
   try {
-    console.log("Fetching with Playwright:", url);
-    
-    // Use domcontentloaded instead of networkidle for Angular apps
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    
-    // Wait for Angular to render - check for table rows specifically
-    await page.waitForFunction(() => {
-      const table = document.getElementById('startList');
-      return table && table.rows && table.rows.length > 1;
-    }, { timeout: 15000 }).catch(() => {
-      console.log("Timeout waiting for table rows");
-    });
-    
-    // Debug: log page title and content preview
-    const title = await page.title();
-    console.log("Page title:", title);
-    
-    const content = await page.content();
-    console.log("Content length:", content.length);
-    console.log("Contains startList:", content.includes('startList'));
-    console.log("Contains table rows:", content.includes('<tr '));
-    
-    return content;
-  } finally {
-    await page.close();
+    const response = await fetch(url);
+    return await response.text();
+  } catch (fallbackErr) {
+    console.error("Fallback also failed:", fallbackErr.message);
+    throw lastError;
   }
 }
 
