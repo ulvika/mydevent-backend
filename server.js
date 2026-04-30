@@ -588,7 +588,23 @@ async function fetchWithPlaywright(url, maxRetries = 3) {
           const text = await res.text();
 
           // Filter useful payloads
-          if (text.includes('documentChange'))  {
+          if (text.includes('documentChange')) {
+          try {
+            const json = JSON.parse(text);
+
+            const change = json.documentChange;
+            if (!change) return;
+
+            const doc = change.document;
+
+            console.log("📄 DOC:", doc.name);
+            console.log("📦 FIELDS:", doc.fields);
+
+          } catch (e) {
+            // Ignore non-JSON chunks (very common)
+          }
+        }
+          /*if (text.includes('documentChange'))  {
 
             const matches = text.match(/documents\/[^\"]+/g);
 
@@ -598,7 +614,7 @@ async function fetchWithPlaywright(url, maxRetries = 3) {
             }
             
             //console.log(text.slice(0, 2000)); // preview
-          }
+          }*/
         }
       } catch (e) {}
     });
