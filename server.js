@@ -620,30 +620,6 @@ async function fetchWithPlaywright(url, maxRetries = 3) {
       );
       }, { timeout: 15000 });
 
-      const hasTable = await page.$('table');
-
-      if (!hasTable) {
-        console.log("No table found for class:", cls.id);
-        return [];
-      }
-
-      // Optional: wait for loader to disappear
-      await page.waitForSelector('.app-loading', {
-        state: 'detached',
-        timeout: 30000
-      }).catch(() => {});
-
-      // 🚀 Extract structured data directly
-      const data = await page.$$eval('table tr', rows =>
-        rows.slice(1).map(tr =>
-          [...tr.children].map(td => td.innerText.trim())
-        )
-      );
-
-      console.log("Rows extracted:", data.length);
-
-      return data;
-
     } catch (err) {
       console.log(`Attempt ${attempt} failed:`, err.message);
       lastError = err;
