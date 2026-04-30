@@ -615,16 +615,6 @@ async function fetchWithPlaywright(url, maxRetries = 3) {
   throw lastError;
 }
   
-  // Fallback to simple fetch if Playwright fails
-  console.log("Playwright failed, falling back to simple fetch:", url);
-  try {
-    const response = await fetch(url);
-    return await response.text();
-  } catch (fallbackErr) {
-    console.error("Fallback also failed:", fallbackErr.message);
-    throw lastError;
-  }
-}
 
 //Step 1: Redirect to Google
 app.get("/auth/google", (req, res) => {
