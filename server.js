@@ -442,6 +442,10 @@ async function syncEvent(eventId) {
 
     // 3️⃣ Fetch & parse each class
     for (const cls of classes) {
+      if (cls.starts === 0) {
+        console.log("Skipping class (no starts):", cls.id);
+        continue;
+      }
       try {
         const html = await fetchWithPlaywright(
           `https://ag.devent.no/public/event/${eventId}/result/${cls.id}`
@@ -603,10 +607,22 @@ async function fetchWithPlaywright(url, maxRetries = 3) {
       });
 
       // 🚀 Wait for actual content (not fake signals)
-      await page.waitForFunction(() =>
-        document.body.innerText.includes('Startliste'),
-        { timeout: 60000 }
+      await page.waitForFunction(() => {
+      const text = document.body.innerText;
+
+      return (
+        text.includes('Fører') ||   // table header (best signal)
+        text.includes('Hund') ||    // second header
+        text.includes('Registrert') // fallback UI state
       );
+      }, { timeout: 15000 });
+
+      const hasTable = await page.$('table');
+
+      if (!hasTable) {
+        console.log("No table found for class:", cls.id);
+        return [];
+      }
 
       // Optional: wait for loader to disappear
       await page.waitForSelector('.app-loading', {
