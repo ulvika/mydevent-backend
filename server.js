@@ -609,8 +609,15 @@ async function fetchWithPlaywright(url, maxRetries = 3) {
         timeout: 60000
       });
 
-      // 🚀 Wait for actual content (not fake signals)
       await page.waitForFunction(() => {
+        // wait until table OR meaningful data appears
+        return document.querySelectorAll('table tr').length > 1;
+      }, { timeout: 20000 });
+
+      await page.waitForTimeout(2000);
+
+      // 🚀 Wait for actual content (not fake signals)
+      /*await page.waitForFunction(() => {
       const text = document.body.innerText;
 
       return (
@@ -618,7 +625,7 @@ async function fetchWithPlaywright(url, maxRetries = 3) {
         text.includes('Hund') ||    // second header
         text.includes('Registrert') // fallback UI state
       );
-      }, { timeout: 15000 });
+      }, { timeout: 15000 });*/
 
     } catch (err) {
       console.log(`Attempt ${attempt} failed:`, err.message);
