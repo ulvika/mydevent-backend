@@ -588,13 +588,16 @@ async function fetchWithPlaywright(url, maxRetries = 3) {
           const text = await res.text();
 
           // Filter useful payloads
-          if (
-            text.includes('Kapow') ||
-            text.includes('Border Collie') ||
-            text.includes('NO') // dog IDs pattern
-          ) {
-            console.log('\n🔥 FIREBASE HIT:', url);
-            console.log(text.slice(0, 2000)); // preview
+          if (text.includes('documentChange'))  {
+
+            const matches = text.match(/documents\/[^\"]+/g);
+
+            if (matches) {
+              console.log('\n🔥 FIREBASE HIT:', url);
+              console.log("📁 DOCUMENT PATHS:", matches);
+            }
+            
+            //console.log(text.slice(0, 2000)); // preview
           }
         }
       } catch (e) {}
