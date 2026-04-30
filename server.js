@@ -442,23 +442,29 @@ async function syncEvent(eventId) {
 
     // 3️⃣ Fetch & parse each class
     for (const cls of classes) {
-      if (cls.starts === 0) {
-        console.log("Skipping class (no starts):", cls.id);
-        continue;
-      }
-      try {
-        const html = await fetchWithPlaywright(
-          `https://ag.devent.no/public/event/${eventId}/result/${cls.id}`
-        )
 
-        const entries = parseClass(html, cls)
-        allEntries.push(...entries)
+  if (cls.starts === 0) {
+    console.log("Skipping class (no starts):", cls.id);
+    continue;
+  }
 
-        await delay(300) // prevent hammering
-      } catch (err) {
-        console.error("Class failed:", cls.id, err)
-      }
+  try {
+    const entries = await fetchWithPlaywright(
+      `https://ag.devent.no/public/event/${eventId}/result/${cls.id}`
+    );
+
+    if (!entries || entries.length === 0) {
+      console.log("⚠️ No entries captured for class:", cls.id);
+    } else {
+      allEntries.push(...entries);
     }
+
+    await delay(300);
+
+  } catch (err) {
+    console.error("Class failed:", cls.id, err);
+  }
+}
 
     console.log("Total entries:", allEntries.length)
 
@@ -562,7 +568,6 @@ async function fetchWithPlaywright(url, maxRetries = 3) {
     try {
       console.log(`Fetching (attempt ${attempt}/${maxRetries}):`, url);
 
-      // 🚀 Block heavy external scripts (CRITICAL)
       await page.route('**/*', route => {
         const reqUrl = route.request().url();
         if (
@@ -574,74 +579,56 @@ async function fetchWithPlaywright(url, maxRetries = 3) {
         route.continue();
       });
 
-      page.on('response', async (res) => {
-      try {
-        const url = res.url();
-        const ct = res.headers()['content-type'] || '';
+      const entries = [];
+      const seen = new Set();
 
-        // Focus on Firebase / Google APIs
-        if (
-          url.includes('firestore') ||
-          url.includes('googleapis') ||
-          url.includes('firebase')
-        ) {
+      page.on('response', async (res) => {
+        try {
           const text = await res.text();
 
-          // Filter useful payloads
-          if (text.includes('documentChange')) {
-          try {
-            const json = JSON.parse(text);
+          if (!text.includes('documentChange')) return;
 
-            const change = json.documentChange;
-            if (!change) return;
+          // 🔥 Extract JSON chunks containing documentChange
+          const matches = text.match(/\{.*?"documentChange".*?\}\s*\}/gs);
+          if (!matches) return;
 
-            const doc = change.document;
+          for (const chunk of matches) {
+            try {
+              const parsed = JSON.parse(chunk);
 
-            console.log("📄 DOC:", doc.name);
-            console.log("📦 FIELDS:", doc.fields);
+              const doc = parsed.documentChange?.document;
+              if (!doc || !doc.fields) continue;
 
-          } catch (e) {
-            // Ignore non-JSON chunks (very common)
-          }
-        }
-          /*if (text.includes('documentChange'))  {
+              if (doc.name.includes('/attendance/')) {
+                if (!seen.has(doc.name)) {
+                  seen.add(doc.name);
 
-            const matches = text.match(/documents\/[^\"]+/g);
+                  const entry = decodeFirestore(doc.fields);
+                  entries.push(entry);
+                }
+              }
 
-            if (matches) {
-              console.log('\n🔥 FIREBASE HIT:', url);
-              console.log("📁 DOCUMENT PATHS:", matches);
+            } catch (e) {
+              // ignore invalid chunks
             }
-            
-            //console.log(text.slice(0, 2000)); // preview
-          }*/
-        }
-      } catch (e) {}
-    });
+          }
 
-      // 🚀 Use 'commit' instead of 'load'
+        } catch (e) {
+          // ignore response read errors
+        }
+      });
+
       await page.goto(url, {
         waitUntil: 'commit',
         timeout: 60000
       });
 
-      await page.waitForFunction(() => {
-        // wait until table OR meaningful data appears
-        return document.querySelectorAll('table tr').length > 1;
-      }, { timeout: 20000 });
+      // wait for Firebase stream
+      await page.waitForTimeout(3000);
 
-      await page.waitForTimeout(2000);
+      console.log("Entries collected:", entries.length);
 
-      // 🚀 Wait for actual content (not fake signals)
-      /*await page.waitForFunction(() => {
-      const text = document.body.innerText;
-
-      return (
-        text.includes('Fører') ||   // table header (best signal)
-        text.includes('Hund') ||    // second header
-        text.includes('Registrert') // fallback UI state
-      );
-      }, { timeout: 15000 });*/
+      return entries;
 
     } catch (err) {
       console.log(`Attempt ${attempt} failed:`, err.message);
