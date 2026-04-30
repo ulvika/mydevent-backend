@@ -570,6 +570,32 @@ async function fetchWithPlaywright(url, maxRetries = 3) {
         route.continue();
       });
 
+      page.on('response', async (res) => {
+      try {
+        const url = res.url();
+        const ct = res.headers()['content-type'] || '';
+
+        // Focus on Firebase / Google APIs
+        if (
+          url.includes('firestore') ||
+          url.includes('googleapis') ||
+          url.includes('firebase')
+        ) {
+          const text = await res.text();
+
+          // Filter useful payloads
+          if (
+            text.includes('Kapow') ||
+            text.includes('Border Collie') ||
+            text.includes('NO') // dog IDs pattern
+          ) {
+            console.log('\n🔥 FIREBASE HIT:', url);
+            console.log(text.slice(0, 2000)); // preview
+          }
+        }
+      } catch (e) {}
+    });
+
       // 🚀 Use 'commit' instead of 'load'
       await page.goto(url, {
         waitUntil: 'commit',
