@@ -385,6 +385,11 @@ app.post("/dogs", requireAuth, async (req, res) => {
 async function syncEvent(eventId) {
   const pool = require("./db")
 
+  if(!debugMode) return { 
+      success: false, 
+      error: "not a debug mode"
+    };
+
   try {
     console.log("SYNC START:", eventId)
 
@@ -565,6 +570,8 @@ function isEventRunning(e) {
 // Improved fetchWithPlaywright with retry and fallback
 async function fetchWithPlaywright(url, maxRetries = 3) {
   let lastError = null;
+
+  if(!debugMode) return null;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     browser = await getBrowser();
@@ -962,6 +969,10 @@ app.get("/test-calendar", async (req, res) => {
 });
 
 app.get("/sync-events", requireAdmin,  async (req, res) => {
+  if(!debugMode) return res.status(500).json({
+        error: "not a debug mode"
+      });
+
   try {
     const url = "https://eventslandingpage-2hgltqwriq-ey.a.run.app/";
 
