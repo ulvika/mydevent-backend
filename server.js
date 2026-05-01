@@ -26,9 +26,14 @@ const allowedOrigins = [
 let browser = null; 
 async function getBrowser() {
   if (!browser) {
-    browser = await chromium.launch({ 
+    browser = await chromium.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-blink-features=AutomationControlled',
+      ],
     });
   }
   return browser;
@@ -562,12 +567,12 @@ async function fetchWithPlaywright(url, maxRetries = 3) {
   let lastError = null;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    const browser = await chromium.launch({
-      headless: false
-    });
+    browser = await getBrowser();
     const context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36',
-      viewport: { width: 1280, height: 800 }
+      userAgent:
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36',
+      viewport: { width: 1280, height: 800 },
+      locale: 'en-US',
     });
 
     const page = await context.newPage();
@@ -681,10 +686,23 @@ async function fetchWithPlaywright(url, maxRetries = 3) {
         });
       });
 
-      /*await page.goto(url, {
-        waitUntil: 'commit',
-        timeout: 60000
-      });*/
+      
+
+      await page.addInitScript(() => {
+        Object.defineProperty(document, 'visibilityState', {
+          get: () => 'visible',
+        });
+
+        Object.defineProperty(document, 'hidden', {
+          get: () => false,
+        });
+      });
+
+      await page.addInitScript(() => {
+        Object.defineProperty(navigator, 'webdriver', {
+          get: () => false,
+        });
+      });
 
       await page.goto(url, { waitUntil: 'networkidle' });
 
@@ -707,7 +725,14 @@ async function fetchWithPlaywright(url, maxRetries = 3) {
         page.waitForTimeout(8000) // longer fallback
       ]);
 
+      /*await page.goto(url, {
+        waitUntil: 'networkidle',
+        timeout: 60000
+      });*/
+
       console.log("Entries collected:", entries.length);
+      console.log("Seen size:", seen.size);
+      console.log("Entries:", entries.length);
 
       return entries;
 
