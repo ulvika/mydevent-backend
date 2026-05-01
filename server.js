@@ -562,8 +562,15 @@ async function fetchWithPlaywright(url, maxRetries = 3) {
   let lastError = null;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    const browser = await getBrowser();
-    const page = await browser.newPage();
+    const browser = await chromium.launch({
+      headless: false
+    });
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36',
+      viewport: { width: 1280, height: 800 }
+    });
+
+    const page = await context.newPage();
 
     try {
       console.log(`Fetching (attempt ${attempt}/${maxRetries}):`, url);
@@ -582,17 +589,30 @@ async function fetchWithPlaywright(url, maxRetries = 3) {
       const entries = [];
       const seen = new Set();
 
+      await page.waitForTimeout(5000);
+
+      page.on('console', msg => {
+        console.log('PAGE LOG:', msg.text());
+      });
+
       page.on('response', async (res) => {
         try {
-          const text = await res.text();
+              const url = res.url();
 
-          if (!text.includes('document')) return;
+        if (url.includes('firestore') || url.includes('google')) {
+          console.log('🌐 RESP:', url);
+        }
+
+        const text = await res.text(); // single read
+
+
+          if (!text.includes('documentChange')) return;
 
           // 🔥 Split Firestore stream safely
           const parts = text.split('\n').filter(Boolean);
 
           for (const part of parts) {
-            if (!part.includes('document')) continue;
+            if (!part.includes('documentChange')) continue;
 
             try {
               const parsed = JSON.parse(part);
@@ -661,10 +681,12 @@ async function fetchWithPlaywright(url, maxRetries = 3) {
         });
       });
 
-      await page.goto(url, {
+      /*await page.goto(url, {
         waitUntil: 'commit',
         timeout: 60000
-      });
+      });*/
+
+      await page.goto(url, { waitUntil: 'networkidle' });
 
       await page.evaluate(() => {
         window.scrollTo(0, document.body.scrollHeight);
