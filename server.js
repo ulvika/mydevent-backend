@@ -586,13 +586,13 @@ async function fetchWithPlaywright(url, maxRetries = 3) {
         try {
           const text = await res.text();
 
-          if (!text.includes('documentChange')) return;
+          if (!text.includes('document')) return;
 
           // 🔥 Split Firestore stream safely
           const parts = text.split('\n').filter(Boolean);
 
           for (const part of parts) {
-            if (!part.includes('documentChange')) continue;
+            if (!part.includes('document')) continue;
 
             try {
               const parsed = JSON.parse(part);
