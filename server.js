@@ -623,22 +623,66 @@ async function fetchWithPlaywright(url, maxRetries = 3) {
         } catch {}
       });
 
+      page.on('websocket', ws => {
+        console.log("🔌 WS opened:", ws.url());
+
+        ws.on('framereceived', frame => {
+          try {
+            const text = frame.payload.toString();
+
+            if (!text.includes('documentChange')) return;
+
+            const parts = text.split('\n').filter(Boolean);
+
+            for (const part of parts) {
+              if (!part.includes('documentChange')) continue;
+
+              try {
+                const parsed = JSON.parse(part);
+
+                const doc = parsed.documentChange?.document;
+                if (!doc || !doc.fields) continue;
+
+                if (doc.name.includes('/attendance/')) {
+                  if (!seen.has(doc.name)) {
+                    seen.add(doc.name);
+
+                    const entry = decodeFirestore(doc.fields);
+                    entries.push(entry);
+
+                    console.log("🔥 WS ENTRY:", entry);
+                  }
+                }
+
+              } catch {}
+            }
+
+          } catch {}
+        });
+      });
+
       await page.goto(url, {
         waitUntil: 'commit',
         timeout: 60000
       });
 
+      await page.evaluate(() => {
+        window.scrollTo(0, document.body.scrollHeight);
+      });
+
+      await page.mouse.move(100, 200);
+
       // wait for Firebase stream
       await Promise.race([
         new Promise(resolve => {
           const interval = setInterval(() => {
-            if (entries.length > 0) {
+            if (seen.size > 0) { // 🔥 key change
               clearInterval(interval);
               resolve();
             }
           }, 200);
         }),
-        page.waitForTimeout(6000)
+        page.waitForTimeout(8000) // longer fallback
       ]);
 
       console.log("Entries collected:", entries.length);
