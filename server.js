@@ -588,34 +588,39 @@ async function fetchWithPlaywright(url, maxRetries = 3) {
 
           if (!text.includes('documentChange')) return;
 
-          // 🔥 Extract JSON chunks containing documentChange
-          const matches = text.match(/\{.*?"documentChange".*?\}\s*\}/gs);
-          if (!matches) return;
+          // 🔥 Split Firestore stream safely
+          const parts = text.split('\n').filter(Boolean);
 
-          for (const chunk of matches) {
+          for (const part of parts) {
+            if (!part.includes('documentChange')) continue;
+
             try {
-              const parsed = JSON.parse(chunk);
+              const parsed = JSON.parse(part);
 
               const doc = parsed.documentChange?.document;
               if (!doc || !doc.fields) continue;
+                console.log("📄 DOC:", doc.name);
+              if (
+                    doc.name.includes('/attendance/') &&
+                    doc.name.includes(cls.id) // optional but useful
+                  ){
 
-              if (doc.name.includes('/attendance/')) {
                 if (!seen.has(doc.name)) {
                   seen.add(doc.name);
 
                   const entry = decodeFirestore(doc.fields);
                   entries.push(entry);
+
+                  console.log("✅ ENTRY:", entry);
                 }
               }
 
-            } catch (e) {
-              // ignore invalid chunks
+            } catch {
+              // ignore non-JSON lines
             }
           }
 
-        } catch (e) {
-          // ignore response read errors
-        }
+        } catch {}
       });
 
       await page.goto(url, {
@@ -624,7 +629,17 @@ async function fetchWithPlaywright(url, maxRetries = 3) {
       });
 
       // wait for Firebase stream
-      await page.waitForTimeout(3000);
+      await Promise.race([
+        new Promise(resolve => {
+          const interval = setInterval(() => {
+            if (entries.length > 0) {
+              clearInterval(interval);
+              resolve();
+            }
+          }, 200);
+        }),
+        page.waitForTimeout(6000)
+      ]);
 
       console.log("Entries collected:", entries.length);
 
