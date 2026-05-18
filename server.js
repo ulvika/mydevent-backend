@@ -971,9 +971,6 @@ app.get("/test-calendar", async (req, res) => {
 });
 
 app.get("/sync-events", requireAdmin,  async (req, res) => {
-  if(!debugMode) return res.status(500).json({
-        error: "not a debug mode"
-      });
 
   try {
     const url = "https://eventslandingpage-2hgltqwriq-ey.a.run.app/";
@@ -998,8 +995,8 @@ app.get("/sync-events", requireAdmin,  async (req, res) => {
     for (const e of events) {
       if (!e.id) continue;
 
-
-      await syncEvent(e.id);            // allways parsing
+      if(debugMode)
+        await syncEvent(e.id);            // parsing
 
 
       const startSell = e.startOfTicketSale? new Date(e.startOfTicketSale) : null;
